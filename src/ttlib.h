@@ -8,6 +8,15 @@
 #include <cstdio>
 #include <vector>
 
+#ifdef DEBUG_BUILD
+#define DEBUG_PUTS(str) puts(str)
+#define DEBUG_PRINTF(fmt, ...) printf(fmt, __VA_ARGS__);
+#else
+#define DEBUG_PUTS(str)
+#define DEBUG_PRINTF(fmt, ...)
+#endif
+
+
 template <typename ... Args>
 std::string format(const std::string& fmt, Args ... args)
 {

@@ -27,7 +27,7 @@ LDFLAGS = -L/usr/lib/arm-linux-gnueabihf
 
 OUTPUT_DIR = $(REL_DIR)
 OUTPUT = $(REL_DIR)/$(TARGET_EXEC)
-CPPFLAGS += -Wall -W
+CPPFLAGS += -Wall -W -DDEBUG_BUILD
 
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp

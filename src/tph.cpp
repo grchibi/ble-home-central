@@ -116,7 +116,7 @@ void TPHData::update(const le_advertising_info& advinfo)
 
 std::map<std::string, TPHData> TPHDataStore::s_store;
 
-void TPHDataStore::store(const le_advertising_info& advinfo)
+const TPHData TPHDataStore::store(const le_advertising_info& advinfo)
 {
 	// address
 	char addr[19] = {0};
@@ -131,7 +131,7 @@ void TPHDataStore::store(const le_advertising_info& advinfo)
 		s_store[addr] = newData;
 	}
 
-	cout << s_store[addr].createJsonData() << endl;
+	return s_store[addr];
 }
 
 

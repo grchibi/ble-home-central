@@ -59,7 +59,7 @@ class TPHDataStore {
 	static std::map<std::string, TPHData> s_store;
 
 public:
-	static void store(const le_advertising_info& advinfo);
+	static const TPHData store(const le_advertising_info& advinfo);
 
 };
 
