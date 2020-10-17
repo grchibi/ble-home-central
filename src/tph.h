@@ -1,3 +1,6 @@
+#ifndef TPH_H
+#define TPH_H
+
 /**
  * tph.h
  *
@@ -5,6 +8,7 @@
  */
 
 #include <map>
+#include <mutex>
 #include <stdexcept>
 
 #include <bluetooth/bluetooth.h>
@@ -16,52 +20,55 @@
 
 
 /**
- * CLASS TPHInitializationError
+ * CLASS tph_initialization_error
  */
 
-class TPHInitializationError : public std::runtime_error {
+class tph_initialization_error : public std::runtime_error {
     public:
-        TPHInitializationError(const std::string& msg) : std::runtime_error(msg) {}
+        tph_initialization_error(const std::string& msg) : std::runtime_error(msg) {}
 };
 
 
 /**
- * CLASS TPHData
+ * CLASS tph_data
  */
 
-class TPHData {
+class tph_data {
 	char _addr[19];
 	char _name[31];
 
 	std::string _dt;
 	float _t, _p, _h;
 
-	void _decodeAdvertisementData(const char* src);
+	void _decode_advertisement_data(const char* src);
 	void _initialize(const le_advertising_info& advinfo);
 
 public:
-	TPHData(void) : _addr{0}, _name{0}, _t(0), _p(0), _h(0) {}
-	TPHData(const le_advertising_info& advinfo);
-	~TPHData() {}
+	tph_data(void) : _addr{0}, _name{0}, _t(0), _p(0), _h(0) {}
+	tph_data(const le_advertising_info& advinfo);
+	~tph_data() {}
 
-	std::string createJsonData(void);
-	bool isValid(void) { return (_t != 0.0 && _p != 0.0 && _h != 0.0); }
+	std::string create_json_data(void);
+	bool is_valid(void) { return (_t != 0.0 && _p != 0.0 && _h != 0.0); }
 	void update(const le_advertising_info& advinfo);
 
 };
 
 
 /**
- * CLASS TPHDataStore
+ * CLASS tph_datastore
  */
 
-class TPHDataStore {
-	static std::map<std::string, TPHData> s_store;
+class tph_datastore {
+	std::mutex _mtx;
+	std::map<std::string, tph_data> _store;
 
 public:
-	static const TPHData store(const le_advertising_info& advinfo);
+	const tph_data store(const le_advertising_info& advinfo);
 
 };
 
 
 // end of tph.h
+
+#endif

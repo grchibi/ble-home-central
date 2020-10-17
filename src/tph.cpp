@@ -8,16 +8,16 @@
 #include <string>
 
 #include "tph.h"
-#include "ttlib.h"
+#include "tt_lib.h"
 
 using namespace std;
 
 
 /**
- * CLASS TPHData
+ * CLASS tph_data
  */
 
-TPHData::TPHData(const le_advertising_info& advinfo) : _t(0), _p(0), _h(0)
+tph_data::tph_data(const le_advertising_info& advinfo) : _t(0), _p(0), _h(0)
 {
 	*_addr = '\0';
 	*_name = '\0';
@@ -25,7 +25,7 @@ TPHData::TPHData(const le_advertising_info& advinfo) : _t(0), _p(0), _h(0)
 	_initialize(advinfo);
 }
 
-void TPHData::_decodeAdvertisementData(const char* src)
+void tph_data::_decode_advertisement_data(const char* src)
 {
     // yyyymmdd
     int32_t ymd32 = ((int32_t)*src) + ((int32_t)*(src + 1) << 8) + ((int32_t)*(src + 2) << 16) + ((int32_t)*(src + 3) << 24);
@@ -48,7 +48,7 @@ void TPHData::_decodeAdvertisementData(const char* src)
 	_h = (float)h32 / 100.00;
 }
 
-void TPHData::_initialize(const le_advertising_info& advinfo)
+void tph_data::_initialize(const le_advertising_info& advinfo)
 {
 	// address
 	memset(_addr, 0, sizeof(_addr));
@@ -61,12 +61,12 @@ void TPHData::_initialize(const le_advertising_info& advinfo)
 	update(advinfo);
 }
 
-string TPHData::createJsonData()
+string tph_data::create_json_data()
 {
 	return format("{\"dsrc\":\"%s\", \"dt\": \"%s\", \"t\": %2.2f, \"p\": %4.2f, \"h\": %3.2f}", _name, _dt.c_str(), _t, _p, _h);
 }
 
-void TPHData::update(const le_advertising_info& advinfo)
+void tph_data::update(const le_advertising_info& advinfo)
 {
 	uint8_t* eir = (uint8_t*)advinfo.data;
 	size_t eir_len = advinfo.length;
@@ -80,7 +80,7 @@ void TPHData::update(const le_advertising_info& advinfo)
             if (field_len == 0) break;  // end of EIR
 
             if (eir_len < offset + field_len)
-                throw TPHInitializationError("EIR parse error.");
+                throw tph_initialization_error("EIR parse error.");
 
             switch (eir[1]) {
                 case EIR_NAME_SHORT:
@@ -102,36 +102,36 @@ void TPHData::update(const le_advertising_info& advinfo)
         }
 
 		if (strstr(_name, "BME280_BEACON") != NULL && 15 <= mdata_len)
-			_decodeAdvertisementData(manufacturer_data);
+			_decode_advertisement_data(manufacturer_data);
 		
-    } catch (TPHInitializationError& exp) {
-        throw TPHInitializationError(std::string("Error occurred in _initialize(): ") + exp.what());
+    } catch (tph_initialization_error& exp) {
+        throw tph_initialization_error(std::string("Error occurred in _initialize(): ") + exp.what());
     }
 }
 
 
 /**
- * CLASS TPHDataStore
+ * CLASS tph_datastore
  */
 
-std::map<std::string, TPHData> TPHDataStore::s_store;
-
-const TPHData TPHDataStore::store(const le_advertising_info& advinfo)
+const tph_data tph_datastore::store(const le_advertising_info& advinfo)
 {
+	lock_guard<mutex> lock(_mtx);
+
 	// address
 	char addr[19] = {0};
     memset(addr, 0, sizeof(addr));
     ba2str(&advinfo.bdaddr, addr);
 
-	if (auto ite = s_store.find(addr); ite != end(s_store)) {	// FOUND
+	if (auto ite = _store.find(addr); ite != end(_store)) {	// FOUND
 		ite->second.update(advinfo);
 
 	} else {	// NOT FOUND
-		TPHData newData(advinfo);
-		s_store[addr] = newData;
+		tph_data newData(advinfo);
+		_store[addr] = newData;
 	}
 
-	return s_store[addr];
+	return _store[addr];
 }
 
 

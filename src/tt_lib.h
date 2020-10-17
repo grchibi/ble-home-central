@@ -1,5 +1,8 @@
+#ifndef TT_LIB_H
+#define TT_LIB_H
+
 /**
- * ttlib.h
+ * tt_lib.h
  *
  *    2020/10/03
  */
@@ -27,4 +30,6 @@ std::string format(const std::string& fmt, Args ... args)
 }
 
 
-// end of ttlib.h
+// end of tt_lib.h
+
+#endif
