@@ -10,10 +10,12 @@
 #include <thread>
 
 #include <signal.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "scanner.h"
 #include "ble_central.h"
+#include "data_sender.h"
 
 #include "tt_lib.h"
 
@@ -26,8 +28,11 @@ using namespace std;
  */
 
 scanner::scanner() {
-	if (pipe(_pipe_notify_to_scanner) == -1 || pipe(_pipe_notify_to_sender) == -1)
-		throw runtime_error(string("Failed to initialize pipes. ") + strerror(errno));
+	if (pipe(_pipe_notify_to_scanner) == -1 || pipe(_pipe_notify_to_sender) == -1) {
+		char msgbuff[128];
+		strerror_r(errno, msgbuff, 128);
+		throw runtime_error(string("Failed to initialize pipes. ") + msgbuff);
+	}
 
 	// for scanner
 	_fds_scanner[0].fd = _pipe_notify_to_scanner[0];
@@ -47,19 +52,32 @@ scanner::~scanner() {
 }
 
 void scanner::run() {
-	exception_ptr ep = nullptr;
+	exception_ptr ep1 = nullptr, ep2 = nullptr;
 
 	tph_datastore store;
 
+	sender_worker sd_worker;
+	thread th_1(ref(sd_worker), ref(_fds_sender), ref(ep1));
+
 	scanner_worker sc_worker;
-	thread th_2(ref(sc_worker), ref(_fds_scanner), ref(store), ref(ep));
+	thread th_2(ref(sc_worker), ref(_fds_scanner), ref(store), ref(ep2));
 
 	th_2.join();
+	th_1.join();
 
-	cout << "finished." << endl;
+	try {
+		if (ep1 != nullptr) rethrow_exception(ep1);
+	} catch (exception& ex) {
+		cerr << "[ERROR] at run(): thread1: " << ex.what() << endl;
+	}
 
-	if (ep != nullptr)
-		rethrow_exception(ep);
+	try {
+		if (ep2 != nullptr) rethrow_exception(ep2);
+	} catch (exception& ex) {
+		cerr << "[ERROR] at run(): thread2: " << ex.what() << endl;
+	}
+
+	cout << "Normally finished." << endl;
 }
 
 
@@ -81,16 +99,37 @@ void scanner_worker::operator()(struct pollfd (&fds)[2], tph_datastore& datastor
     }
 }
 
+
+/**
+ * sender_worker
+ */
+
+void sender_worker::operator()(struct pollfd (&fds)[1], exception_ptr& ep) {
+	ep = nullptr;
+
+	try {
+		data_sender sender;
+
+		sender.start(fds);
+
+	} catch (...) {
+		ep = current_exception();
+    }
+}
+
+
 /**
  * GLOBAL
  */
 
-static int sg_fd4sigint = -1;
+static int sg_fd4sigint_scanner = -1;
+static int sg_fd4sigint_sender = -1;
 
 void sigint_handler(int sig) {
 	if (sig == SIGINT) {
-		DEBUG_PUTS("SIGINT RECEIVED.");
-		write(sg_fd4sigint, "\x01", 1);
+		DEBUG_PUTS("GLOBAL: SIGINT RECEIVED.");
+		write(sg_fd4sigint_scanner, "\x01", 1);
+		write(sg_fd4sigint_sender, "\x01", 1);
 	}
 }
 
@@ -104,7 +143,8 @@ int main(int argc, char** argv)
 	try {
 		scanner svr;
 
-		sg_fd4sigint = svr.getfd_of_notify_signal();
+		sg_fd4sigint_scanner = svr.getfd_of_notify_signal_4scanner();
+		sg_fd4sigint_sender = svr.getfd_of_notify_signal_4sender();
 
 		svr.run();
 

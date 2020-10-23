@@ -8,6 +8,7 @@
 
 #include <fcntl.h>
 #include <poll.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -51,13 +52,17 @@ void ble_central::open_device() {
 	_current_hci_state.device_id = hci_get_route(NULL);
 
     if ((_current_hci_state.device_handle = hci_open_dev(_current_hci_state.device_id)) < 0) {
-        throw tt_ble_exception(string("Could not open device: ") + strerror(errno));
+		char msgbuff[128];
+		strerror_r(errno, msgbuff, 128);
+        throw tt_ble_exception(string("Could not open device: ") + msgbuff);
     }
 
     // set fd non-blocking
     /*int on = 1;
     if (ioctl(_current_hci_state.device_handle, FIONBIO, (char*)&on) < 0) {
-		throw tt_ble_exception(string("Could not set device to non-blocking: ") + strerror(errno));
+		char msgbuff[128];
+		strerror_r(errno, msgbuff, 128);
+		throw tt_ble_exception(string("Could not set device to non-blocking: ") + msgbuff);
     }*/
 
     _current_hci_state.state = hci_state::OPEN;
@@ -87,12 +92,14 @@ void ble_central::scan_advertising_devices(struct pollfd* fds, tph_datastore& da
     try {
 		while (1) {
 			if (poll(fds, 2, -1) < 0 && errno != EINTR) {
-				cerr << "poll error occurred in scanner worker. " << strerror(errno) << endl;
+				char msgbuff[128];
+				strerror_r(errno, msgbuff, 128);
+				cerr << "poll error occurred in scanner worker. " << msgbuff << endl;
 				continue;
 			}
 
 			if (fds[0].revents & POLLIN) {
-				DEBUG_PUTS("SIGNAL NOTIFIED");
+				DEBUG_PUTS("BLE: SIGNAL NOTIFIED");
 				throw tt_ble_exception("read signal notify from pipe.");
 			}
 
@@ -102,10 +109,10 @@ void ble_central::scan_advertising_devices(struct pollfd* fds, tph_datastore& da
 				
 				if ((len = read(dev_handle, buff, sizeof(buff))) < 0) {
 					if (errno == EAGAIN) {
-						DEBUG_PUTS("EAGAIN");
+						DEBUG_PUTS("BLE: EAGAIN");
 						continue;
 					} else if (errno == EINTR) {
-						DEBUG_PUTS("read RECEIVED ANY SIGNAL");
+						DEBUG_PUTS("BLE: read RECEIVED ANY SIGNAL");
 						continue;
 					} else {
                     	throw tt_ble_exception("read error.");
@@ -128,10 +135,10 @@ void ble_central::scan_advertising_devices(struct pollfd* fds, tph_datastore& da
 						cout << tphdata.create_json_data() << endl;
 				}
 
-				DEBUG_PUTS("RE-POLL(READ EVENTS)");
+				DEBUG_PUTS("BLE: RE-POLL(READ EVENTS)");
 
 			} else {
-				DEBUG_PUTS("RE-POLL(NO EVENTS)...");
+				DEBUG_PUTS("BLE: RE-POLL(NO EVENTS)...");
 			}
 		}	// while loop
 
@@ -184,11 +191,15 @@ void ble_central::start_hci_scan(struct pollfd* fds, tph_datastore& datastore) {
     uint8_t filter_type = 0;
 
     if (hci_le_set_scan_parameters(_current_hci_state.device_handle, scan_type, interval, window, own_type, filter_policy, 10000) < 0) {
-        cerr << "[WARN] Failed to set scan parameters: " << strerror(errno) << endl;
+		char msgbuff[128];
+		strerror_r(errno, msgbuff, 128);
+        cerr << "[WARN] Failed to set scan parameters: " << msgbuff << endl;
     }
 
     if (hci_le_set_scan_enable(_current_hci_state.device_handle, 0x01, filter_dup, 10000) < 0) {
-        cerr << "[WARN] Failed to enable scan: " << strerror(errno) << endl;;
+		char msgbuff[128];
+		strerror_r(errno, msgbuff, 128);
+        cerr << "[WARN] Failed to enable scan: " << msgbuff << endl;;
     }
 
     _current_hci_state.state = hci_state::SCANNING;
@@ -198,11 +209,13 @@ void ble_central::start_hci_scan(struct pollfd* fds, tph_datastore& datastore) {
 		scan_advertising_devices(fds, datastore, _current_hci_state.device_handle, filter_type);
 
 	} catch(tt_ble_exception& ex) {
-        cerr << "[ERROR] Could not receive advertising events: " << ex.what() << endl;
+        cerr << "Could not receive advertising events: " << ex.what() << endl;
     }
 
     if (hci_le_set_scan_enable(_current_hci_state.device_handle, 0x00, filter_dup, 10000) < 0) {
-        throw tt_ble_exception(string("Failed to disable scan: ") + strerror(errno));
+		char msgbuff[128];
+		strerror_r(errno, msgbuff, 128);
+        throw tt_ble_exception(string("Failed to disable scan: ") + msgbuff);
     }
 
     hci_close_dev(_current_hci_state.device_handle);

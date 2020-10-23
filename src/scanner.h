@@ -26,10 +26,12 @@ class scanner {
 	struct pollfd _fds_sender[1];
 
 public:
-	scanner();
+	scanner(void);
 	~scanner();
 
-	int getfd_of_notify_signal() { return _pipe_notify_to_scanner[1]; }
+	int getfd_of_notify_signal_4scanner() { return _pipe_notify_to_scanner[1]; }
+	int getfd_of_notify_signal_4sender() { return _pipe_notify_to_sender[1]; }
+	
 	void run(void);
 
 };
@@ -46,6 +48,20 @@ public:
 	~scanner_worker() {}
 
 	void operator()(struct pollfd (&fds)[2], tph_datastore& datastore, std::exception_ptr& ep);
+
+};
+
+
+/**
+ * CLASS sender_worker
+ */
+
+class sender_worker {
+public:
+	sender_worker(void) {}
+	~sender_worker() {}
+
+	void operator()(struct pollfd (&fds)[1], std::exception_ptr& ep);
 
 };
 
