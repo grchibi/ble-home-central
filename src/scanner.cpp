@@ -28,19 +28,11 @@ using namespace std;
  */
 
 scanner::scanner() {
-	if (pipe(_pipe_notify_to_scanner) == -1 || pipe(_pipe_notify_to_sender) == -1) {
+	if (pipe(_pipe_notify_to_scanner) == -1 || pipe(_pipe_notify_to_sender) == -1 || pipe(_pipe_data_from_scanner) == -1) {
 		char msgbuff[128];
 		strerror_r(errno, msgbuff, 128);
 		throw runtime_error(string("Failed to initialize pipes. ") + msgbuff);
 	}
-
-	// for scanner
-	_fds_scanner[0].fd = _pipe_notify_to_scanner[0];
-	_fds_scanner[0].events = POLLIN;
-
-	// for sender
-	_fds_sender[0].fd = _pipe_notify_to_sender[0];
-	_fds_sender[0].events = POLLIN;
 }
 
 scanner::~scanner() {
@@ -49,6 +41,9 @@ scanner::~scanner() {
 
 	close(_pipe_notify_to_sender[0]);
 	close(_pipe_notify_to_sender[1]);
+
+	close(_pipe_data_from_scanner[0]);
+	close(_pipe_data_from_scanner[1]);
 }
 
 void scanner::run() {
@@ -56,11 +51,11 @@ void scanner::run() {
 
 	tph_datastore store;
 
-	sender_worker sd_worker;
-	thread th_1(ref(sd_worker), ref(_fds_sender), ref(ep1));
+	sender_worker sd_worker(_pipe_notify_to_sender[0], _pipe_data_from_scanner[0]);
+	thread th_1(ref(sd_worker), ref(ep1));
 
-	scanner_worker sc_worker;
-	thread th_2(ref(sc_worker), ref(_fds_scanner), ref(store), ref(ep2));
+	scanner_worker sc_worker(_pipe_notify_to_scanner[0], _pipe_data_from_scanner[1]);
+	thread th_2(ref(sc_worker), ref(store), ref(ep2));
 
 	th_2.join();
 	th_1.join();
@@ -85,14 +80,14 @@ void scanner::run() {
  * scanner_worker
  */
 
-void scanner_worker::operator()(struct pollfd (&fds)[2], tph_datastore& datastore, exception_ptr& ep) {
+void scanner_worker::operator()(tph_datastore& datastore, exception_ptr& ep) {
 	ep = nullptr;
 
 	try {
-		ble_central central;
+		ble_central central(_fd_sig, _fd_w);
 
 		central.open_device();
-		central.start_hci_scan(fds, datastore);
+		central.start_hci_scan(datastore);
 
 	} catch (...) {
 		ep = current_exception();
@@ -104,13 +99,13 @@ void scanner_worker::operator()(struct pollfd (&fds)[2], tph_datastore& datastor
  * sender_worker
  */
 
-void sender_worker::operator()(struct pollfd (&fds)[1], exception_ptr& ep) {
+void sender_worker::operator()(exception_ptr& ep) {
 	ep = nullptr;
 
 	try {
-		data_sender sender;
+		data_sender sender(_fd_sig, _fd_r);
 
-		sender.start(fds);
+		sender.start();
 
 	} catch (...) {
 		ep = current_exception();

@@ -18,11 +18,13 @@
  */
 
 class data_sender {
+	struct pollfd _fds_poll[2];
+
 public:
-	data_sender(void) {}
+	data_sender(int fd_sighup, int fd_read);
 	~data_sender() {}
 
-	void start(struct pollfd* fds);
+	void start(void);
 
 };
 

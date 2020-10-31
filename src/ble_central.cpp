@@ -20,7 +20,12 @@
 using namespace std;
 
 
-volatile int ble_central::_s_signal_received = 0;
+ble_central::ble_central(int fd_sighup, int fd_write) {
+    _fds_poll[0].fd = fd_sighup;
+    _fds_poll[0].events = POLLIN;
+
+    _fd_write = fd_write;
+}
 
 int ble_central::check_report_filter(uint8_t procedure, le_advertising_info* adv)
 {
@@ -68,7 +73,7 @@ void ble_central::open_device() {
     _current_hci_state.state = hci_state::OPEN;
 }
 
-void ble_central::scan_advertising_devices(struct pollfd* fds, tph_datastore& datastore, int dev_handle, uint8_t f_type)
+void ble_central::scan_advertising_devices(tph_datastore& datastore, int dev_handle, uint8_t f_type)
 {
     struct hci_filter of, nf;
 
@@ -85,25 +90,25 @@ void ble_central::scan_advertising_devices(struct pollfd* fds, tph_datastore& da
 		throw tt_ble_exception("Could not set socket options.");
     }
 
-	fds[1].fd = dev_handle;
-	fds[1].events = POLLIN;
+	_fds_poll[1].fd = dev_handle;
+	_fds_poll[1].events = POLLIN;
 
 	int len;
     try {
 		while (1) {
-			if (poll(fds, 2, -1) < 0 && errno != EINTR) {
+			if (poll(_fds_poll, 2, -1) < 0 && errno != EINTR) {
 				char msgbuff[128];
 				strerror_r(errno, msgbuff, 128);
 				cerr << "poll error occurred in scanner worker. " << msgbuff << endl;
 				continue;
 			}
 
-			if (fds[0].revents & POLLIN) {
+			if (_fds_poll[0].revents & POLLIN) {
 				DEBUG_PUTS("BLE: SIGNAL NOTIFIED");
 				throw tt_ble_exception("read signal notify from pipe.");
 			}
 
-			if (fds[1].revents & POLLIN) {
+			if (_fds_poll[1].revents & POLLIN) {
             	evt_le_meta_event* meta;
             	unsigned char buff[HCI_MAX_EVENT_SIZE] = {0};
 				
@@ -131,8 +136,17 @@ void ble_central::scan_advertising_devices(struct pollfd* fds, tph_datastore& da
 				le_advertising_info* adv_info = (le_advertising_info*)(meta->data + 1);
 				if (check_report_filter(f_type, adv_info)) {
 					tph_data tphdata = datastore.store(*adv_info);
-					if (tphdata.is_valid())		// has BME280 data.
-						cout << tphdata.create_json_data() << endl;
+
+					if (tphdata.is_valid())	{	// has BME280 data.
+						string jdata = tphdata.create_json_data();
+						if (write(_fd_write, jdata.c_str(), jdata.size()) < 0) {
+							char msgbuff[128];
+							strerror_r(errno, msgbuff, 128);
+							DEBUG_PRINTF("BLE: WRITE ERROR OCCURRED. %s", msgbuff);
+							throw tt_ble_exception(string("write error. ") + msgbuff);
+						}
+						//cout << tphdata.create_json_data() << endl;
+					}
 				}
 
 				DEBUG_PUTS("BLE: RE-POLL(READ EVENTS)");
@@ -181,7 +195,7 @@ int ble_central::read_flags(uint8_t *flags, const uint8_t *data, size_t size)
     return -ENOENT;
 }
 
-void ble_central::start_hci_scan(struct pollfd* fds, tph_datastore& datastore) {
+void ble_central::start_hci_scan(tph_datastore& datastore) {
 	uint8_t scan_type = 0x01;
     uint16_t interval = htobs(0x0010);
     uint16_t window = htobs(0x0010);
@@ -206,7 +220,7 @@ void ble_central::start_hci_scan(struct pollfd* fds, tph_datastore& datastore) {
 	DEBUG_PUTS("Scanning...");
 
 	try {
-		scan_advertising_devices(fds, datastore, _current_hci_state.device_handle, filter_type);
+		scan_advertising_devices(datastore, _current_hci_state.device_handle, filter_type);
 
 	} catch(tt_ble_exception& ex) {
         cerr << "Could not receive advertising events: " << ex.what() << endl;

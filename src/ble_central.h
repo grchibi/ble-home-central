@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <string>
 
+#include <poll.h>
+
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
@@ -62,19 +64,19 @@ class tt_ble_exception : public std::runtime_error {
 
 class ble_central {
 	hci_data_t _current_hci_state;
+	struct pollfd _fds_poll[2];
+	int _fd_write;
 
 	int check_report_filter(uint8_t procedure, le_advertising_info* adv);
-	void scan_advertising_devices(struct pollfd* fds, tph_datastore& datastore, int dev_handle, uint8_t f_type);
+	void scan_advertising_devices(tph_datastore& datastore, int dev_handle, uint8_t f_type);
 	int read_flags(uint8_t *flags, const uint8_t *data, size_t size);
 
 public:
-	ble_central(void) {}
+	ble_central(int fd_sighup, int fd_write);
 	~ble_central() {}
 
-	static volatile int _s_signal_received;
-
 	void open_device(void);
-	void start_hci_scan(struct pollfd* fds, tph_datastore& datastore);
+	void start_hci_scan(tph_datastore& datastore);
 
 };
 
