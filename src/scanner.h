@@ -7,11 +7,39 @@
  *    2020/09/12
  */
 
+#include <chrono>
+#include <condition_variable>
 #include <exception>
+#include <mutex>
 
 #include <poll.h>
 
 #include "tph.h"
+
+
+/**
+ * CLASS scheduler
+ */
+
+class scheduler {
+	static constexpr int DURATION_SEC_OF_ACT = 300;
+
+	std::condition_variable _cond;
+	std::mutex _mtx;
+	bool _rcv_sigint;
+
+	int get_sec_for_alarm_00(void);
+	void start_scanning_peripherals(void);
+	void stop_scanning_peripherals(void);
+
+public:
+	scheduler(void) : _rcv_sigint(false) {}
+	~scheduler() {}
+
+	void run(void);
+	void sigint(void);
+
+};
 
 
 /**

@@ -4,6 +4,7 @@
  *    2020/09/12
  */
 
+#include <ctime>
 #include <exception>
 #include <iostream>
 #include <map>
@@ -21,6 +22,70 @@
 
 
 using namespace std;
+
+
+/**
+ * scheduler
+ */
+
+int scheduler::get_sec_for_alarm_00() {
+	auto now = chrono::system_clock::to_time_t(chrono::system_clock::now());
+	tm* now_tm = localtime(&now);
+	
+	return ((60 - now_tm->tm_min - 1) * 60) + (60 - now_tm->tm_sec);
+}
+
+void scheduler::sigint() {
+	{
+		lock_guard<mutex> lock(_mtx);
+		_rcv_sigint = true;
+	}
+
+	_cond.notify_all();
+}
+
+void scheduler::run() {
+	try {
+		unique_lock<mutex> lock(_mtx);
+
+		while (1) {
+			int sleep_sec = get_sec_for_alarm_00();
+
+			DEBUG_PRINTF("SCHEDULER: falling into a sleep...%ds\n", sleep_sec);
+			if (_cond.wait_for(lock, chrono::seconds(sleep_sec), [this]{ return _rcv_sigint; })) {
+				cout << "SCHEDULER: stopped waiting." << endl;
+				break;
+			}
+
+			DEBUG_PUTS("SCHEDULER: waked up!");
+			start_scanning_peripherals();
+
+			if (_cond.wait_for(lock, chrono::seconds(DURATION_SEC_OF_ACT), [this]{ return _rcv_sigint; })) {
+				stop_scanning_peripherals();
+				DEBUG_PUTS("SCHEDULER: stopped scanning.");
+
+				break;
+			}
+
+			stop_scanning_peripherals();
+			DEBUG_PUTS("SCHEDULER: next loop");
+		}
+
+	} catch (exception& ex) {
+		stop_scanning_peripherals();
+		cerr << "[ERROR] at scheduler::run() => " << ex.what() << endl;
+	}
+
+	cout << "SCHEDULER: normally finished." << endl;
+}
+
+void scheduler::start_scanning_peripherals() {
+	DEBUG_PUTS("SCHEDULER: start scanning.");
+}
+
+void scheduler::stop_scanning_peripherals() {
+	DEBUG_PUTS("SCHEDULER: stop scanning.");
+}
 
 
 /**
@@ -117,14 +182,18 @@ void sender_worker::operator()(exception_ptr& ep) {
  * GLOBAL
  */
 
+static scheduler svr_scheduler;
+
 static int sg_fd4sigint_scanner = -1;
 static int sg_fd4sigint_sender = -1;
 
 void sigint_handler(int sig) {
 	if (sig == SIGINT) {
 		DEBUG_PUTS("GLOBAL: SIGINT RECEIVED.");
-		write(sg_fd4sigint_scanner, "\x01", 1);
-		write(sg_fd4sigint_sender, "\x01", 1);
+		svr_scheduler.sigint();
+
+		/*write(sg_fd4sigint_scanner, "\x01", 1);
+		write(sg_fd4sigint_sender, "\x01", 1);*/
 	}
 }
 
@@ -136,12 +205,14 @@ int main(int argc, char** argv)
     sigaction(SIGINT, &sa, NULL);
 
 	try {
-		scanner svr;
+		/*scanner svr;
 
 		sg_fd4sigint_scanner = svr.getfd_of_notify_signal_4scanner();
 		sg_fd4sigint_sender = svr.getfd_of_notify_signal_4sender();
 
-		svr.run();
+		svr.run();*/
+
+		svr_scheduler.run();
 
 	} catch (exception& ex) {
 		cerr << "Error in main(): " << ex.what() << endl;
