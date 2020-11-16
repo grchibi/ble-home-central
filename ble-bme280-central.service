@@ -1,0 +1,10 @@
+[Unit]
+Description = Central for BME280 BLE Peripherals
+
+[Service]
+ExecStart = sudo /home/iot/userdata/ble-home-central/bin/release/blescan
+ExecStop = /bin/kill -SIGINT $MAINPID
+Type = simple
+
+[Install]
+WantedBy = multi-user.target

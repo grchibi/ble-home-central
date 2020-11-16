@@ -145,6 +145,7 @@ void ble_central::scan_advertising_devices(tph_datastore& datastore, int dev_han
 							DEBUG_PRINTF("BLE: WRITE ERROR OCCURRED. %s", msgbuff);
 							throw tt_ble_exception(string("write error. ") + msgbuff);
 						}
+						DEBUG_PUTS("BLE: WROTE DATA TO API COMM");
 						//cout << tphdata.create_json_data() << endl;
 					}
 				}
@@ -207,23 +208,23 @@ void ble_central::start_hci_scan(tph_datastore& datastore) {
     if (hci_le_set_scan_parameters(_current_hci_state.device_handle, scan_type, interval, window, own_type, filter_policy, 10000) < 0) {
 		char msgbuff[128];
 		strerror_r(errno, msgbuff, 128);
-        cerr << "[WARN] Failed to set scan parameters: " << msgbuff << endl;
+        cerr << "BLE[WARN]: Failed to set scan parameters: " << msgbuff << endl;
     }
 
     if (hci_le_set_scan_enable(_current_hci_state.device_handle, 0x01, filter_dup, 10000) < 0) {
 		char msgbuff[128];
 		strerror_r(errno, msgbuff, 128);
-        cerr << "[WARN] Failed to enable scan: " << msgbuff << endl;;
+        cerr << "BLE[WARN]: Failed to enable scan: " << msgbuff << endl;;
     }
 
     _current_hci_state.state = hci_state::SCANNING;
-	DEBUG_PUTS("Scanning...");
+	DEBUG_PUTS("BLE: Scanning...");
 
 	try {
 		scan_advertising_devices(datastore, _current_hci_state.device_handle, filter_type);
 
 	} catch(tt_ble_exception& ex) {
-        cerr << "Could not receive advertising events: " << ex.what() << endl;
+        cerr << "BLE[ERROR]: Could not receive advertising events: " << ex.what() << endl;
     }
 
     if (hci_le_set_scan_enable(_current_hci_state.device_handle, 0x00, filter_dup, 10000) < 0) {

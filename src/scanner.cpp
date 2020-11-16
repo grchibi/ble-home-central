@@ -10,15 +10,19 @@
 #include <map>
 #include <thread>
 
+#include <curl/curl.h>
 #include <signal.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "scanner.h"
 #include "ble_central.h"
-#include "data_sender.h"
+#include "api_comm.h"
 
 #include "tt_lib.h"
+
+
+#define CONTINUOUS_RUNNING 0
 
 
 using namespace std;
@@ -27,6 +31,31 @@ using namespace std;
 /**
  * scheduler
  */
+
+scheduler::scheduler() : _ep_central(nullptr), _ep_apicomm(nullptr), _rcv_sigint(false) {
+	if (pipe(_pipe_notify_to_central) == -1 || pipe(_pipe_notify_to_apicomm) == -1 || pipe(_pipe_data_from_central) == -1) {
+		char msgbuff[128];
+		strerror_r(errno, msgbuff, 128);
+		throw runtime_error(string("Failed to initialize pipes. ") + msgbuff);
+	}
+
+	_worker_ac = new apicomm_worker(_pipe_notify_to_apicomm[0], _pipe_data_from_central[0]);
+	_worker_cl = new central_worker(_pipe_notify_to_central[0], _pipe_data_from_central[1]);
+}
+
+scheduler::~scheduler() {
+	delete _worker_ac;
+	delete _worker_cl;
+
+	close(_pipe_notify_to_central[0]);
+	close(_pipe_notify_to_central[1]);
+
+	close(_pipe_notify_to_apicomm[0]);
+	close(_pipe_notify_to_apicomm[1]);
+
+	close(_pipe_data_from_central[0]);
+	close(_pipe_data_from_central[1]);
+}
 
 int scheduler::get_sec_for_alarm_00() {
 	auto now = chrono::system_clock::to_time_t(chrono::system_clock::now());
@@ -46,9 +75,12 @@ void scheduler::sigint() {
 
 void scheduler::run() {
 	try {
+		curl_global_init(CURL_GLOBAL_ALL);
+
 		unique_lock<mutex> lock(_mtx);
 
 		while (1) {
+#if CONTINUOUS_RUNNING
 			int sleep_sec = get_sec_for_alarm_00();
 
 			DEBUG_PRINTF("SCHEDULER: falling into a sleep...%ds\n", sleep_sec);
@@ -58,17 +90,22 @@ void scheduler::run() {
 			}
 
 			DEBUG_PUTS("SCHEDULER: waked up!");
+#endif
 			start_scanning_peripherals();
 
 			if (_cond.wait_for(lock, chrono::seconds(DURATION_SEC_OF_ACT), [this]{ return _rcv_sigint; })) {
 				stop_scanning_peripherals();
-				DEBUG_PUTS("SCHEDULER: stopped scanning.");
-
 				break;
 			}
 
+			DEBUG_PRINTF("SCHEDULER: timeout => %d sec.", DURATION_SEC_OF_ACT);
 			stop_scanning_peripherals();
+
+#if CONTINUOUS_RUNNING
 			DEBUG_PUTS("SCHEDULER: next loop");
+#else
+			break;
+#endif
 		}
 
 	} catch (exception& ex) {
@@ -76,15 +113,40 @@ void scheduler::run() {
 		cerr << "[ERROR] at scheduler::run() => " << ex.what() << endl;
 	}
 
+	curl_global_cleanup();
+
 	cout << "SCHEDULER: normally finished." << endl;
 }
 
 void scheduler::start_scanning_peripherals() {
 	DEBUG_PUTS("SCHEDULER: start scanning.");
+
+	_th_ac = thread(ref(*_worker_ac), ref(_ep_apicomm));
+	_th_cl = thread(ref(*_worker_cl), ref(_ep_central));
 }
 
 void scheduler::stop_scanning_peripherals() {
 	DEBUG_PUTS("SCHEDULER: stop scanning.");
+
+	write(_pipe_notify_to_central[1], "\x01", 1);
+	write(_pipe_notify_to_apicomm[1], "\x01", 1);
+
+	_th_cl.join();
+	_th_ac.join();
+
+	try {
+		if (_ep_apicomm != nullptr) rethrow_exception(_ep_apicomm);
+	} catch (exception& ex) {
+		cerr << "SCHEDULER[ERROR]: at api_comm => " << ex.what() << endl;
+	}
+
+	try {
+		if (_ep_central != nullptr) rethrow_exception(_ep_central);
+	} catch (exception& ex) {
+		cerr << "SCHEDULER[ERROR]: at central => " << ex.what() << endl;
+	}
+
+	_ep_apicomm = _ep_central = nullptr;
 }
 
 
@@ -116,11 +178,11 @@ void scanner::run() {
 
 	tph_datastore store;
 
-	sender_worker sd_worker(_pipe_notify_to_sender[0], _pipe_data_from_scanner[0]);
-	thread th_1(ref(sd_worker), ref(ep1));
+	apicomm_worker ac_worker(_pipe_notify_to_sender[0], _pipe_data_from_scanner[0]);
+	thread th_1(ref(ac_worker), ref(ep1));
 
-	scanner_worker sc_worker(_pipe_notify_to_scanner[0], _pipe_data_from_scanner[1]);
-	thread th_2(ref(sc_worker), ref(store), ref(ep2));
+	central_worker cl_worker(_pipe_notify_to_scanner[0], _pipe_data_from_scanner[1]);
+	thread th_2(ref(cl_worker), ref(store), ref(ep2));
 
 	th_2.join();
 	th_1.join();
@@ -142,10 +204,25 @@ void scanner::run() {
 
 
 /**
- * scanner_worker
+ * central_worker
  */
 
-void scanner_worker::operator()(tph_datastore& datastore, exception_ptr& ep) {
+void central_worker::operator()(exception_ptr& ep) {
+	ep = nullptr;
+	tph_datastore store;
+
+	try {
+		ble_central central(_fd_sig, _fd_w);
+
+		central.open_device();
+		central.start_hci_scan(store);
+
+	} catch (...) {
+		ep = current_exception();
+    }
+}
+
+void central_worker::operator()(tph_datastore& datastore, exception_ptr& ep) {
 	ep = nullptr;
 
 	try {
@@ -161,16 +238,16 @@ void scanner_worker::operator()(tph_datastore& datastore, exception_ptr& ep) {
 
 
 /**
- * sender_worker
+ * apicomm_worker
  */
 
-void sender_worker::operator()(exception_ptr& ep) {
+void apicomm_worker::operator()(exception_ptr& ep) {
 	ep = nullptr;
 
 	try {
-		data_sender sender(_fd_sig, _fd_r);
+		api_comm communicator(_fd_sig, _fd_r);
 
-		sender.start();
+		communicator.start();
 
 	} catch (...) {
 		ep = current_exception();
@@ -184,16 +261,10 @@ void sender_worker::operator()(exception_ptr& ep) {
 
 static scheduler svr_scheduler;
 
-static int sg_fd4sigint_scanner = -1;
-static int sg_fd4sigint_sender = -1;
-
 void sigint_handler(int sig) {
 	if (sig == SIGINT) {
 		DEBUG_PUTS("GLOBAL: SIGINT RECEIVED.");
 		svr_scheduler.sigint();
-
-		/*write(sg_fd4sigint_scanner, "\x01", 1);
-		write(sg_fd4sigint_sender, "\x01", 1);*/
 	}
 }
 
@@ -205,13 +276,6 @@ int main(int argc, char** argv)
     sigaction(SIGINT, &sa, NULL);
 
 	try {
-		/*scanner svr;
-
-		sg_fd4sigint_scanner = svr.getfd_of_notify_signal_4scanner();
-		sg_fd4sigint_sender = svr.getfd_of_notify_signal_4sender();
-
-		svr.run();*/
-
 		svr_scheduler.run();
 
 	} catch (exception& ex) {

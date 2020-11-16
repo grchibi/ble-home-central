@@ -15,7 +15,7 @@ DEPS := $(OBJS:.o=.d)
 INC_DIRS := $(shell find $(SRC_DIR) -type d)
 INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 
-LIBS = -lbluetooth -pthread
+LIBS = -lbluetooth -pthread -lcurl-gnutls
 
 -include $(DEPS)
 

@@ -11,10 +11,46 @@
 #include <condition_variable>
 #include <exception>
 #include <mutex>
+//#include <stdexcept>
 
 #include <poll.h>
 
 #include "tph.h"
+
+
+/**
+ * CLASS apicomm_worker
+ */
+
+class apicomm_worker {
+	int _fd_sig, _fd_r;
+
+public:
+	apicomm_worker(int fd_sighup, int fd_read) : _fd_sig(fd_sighup), _fd_r(fd_read) {}
+	~apicomm_worker() {}
+
+	//void operator()(struct pollfd (&fds)[1], std::exception_ptr& ep);
+	void operator()(std::exception_ptr& ep);
+
+};
+
+
+/**
+ * CLASS central_worker
+ */
+
+class central_worker {
+	int _fd_sig, _fd_w;
+
+public:
+	central_worker(int fd_sighup, int fd_write) : _fd_sig(fd_sighup), _fd_w(fd_write) {}
+	~central_worker() {}
+
+	//void operator()(struct pollfd (&fds)[2], tph_datastore& datastore, std::exception_ptr& ep);
+	void operator()(tph_datastore& datastore, std::exception_ptr& ep);
+	void operator()(std::exception_ptr& ep);
+
+};
 
 
 /**
@@ -25,16 +61,23 @@ class scheduler {
 	static constexpr int DURATION_SEC_OF_ACT = 300;
 
 	std::condition_variable _cond;
+	std::exception_ptr _ep_central, _ep_apicomm;
 	std::mutex _mtx;
+	int _pipe_notify_to_central[2];
+	int _pipe_notify_to_apicomm[2];
+	int _pipe_data_from_central[2];
 	bool _rcv_sigint;
+	std::thread _th_ac, _th_cl;
+	apicomm_worker* _worker_ac;
+	central_worker* _worker_cl;
 
 	int get_sec_for_alarm_00(void);
 	void start_scanning_peripherals(void);
 	void stop_scanning_peripherals(void);
 
 public:
-	scheduler(void) : _rcv_sigint(false) {}
-	~scheduler() {}
+	scheduler(void);
+	~scheduler();
 
 	void run(void);
 	void sigint(void);
@@ -59,40 +102,6 @@ public:
 	int getfd_of_notify_signal_4sender() { return _pipe_notify_to_sender[1]; }
 
 	void run(void);
-
-};
-
-
-/**
- * CLASS scanner_worker
- */
-
-class scanner_worker {
-	int _fd_sig, _fd_w;
-
-public:
-	scanner_worker(int fd_sighup, int fd_write) : _fd_sig(fd_sighup), _fd_w(fd_write) {}
-	~scanner_worker() {}
-
-	//void operator()(struct pollfd (&fds)[2], tph_datastore& datastore, std::exception_ptr& ep);
-	void operator()(tph_datastore& datastore, std::exception_ptr& ep);
-
-};
-
-
-/**
- * CLASS sender_worker
- */
-
-class sender_worker {
-	int _fd_sig, _fd_r;
-
-public:
-	sender_worker(int fd_sighup, int fd_read) : _fd_sig(fd_sighup), _fd_r(fd_read) {}
-	~sender_worker() {}
-
-	//void operator()(struct pollfd (&fds)[1], std::exception_ptr& ep);
-	void operator()(std::exception_ptr& ep);
 
 };
 

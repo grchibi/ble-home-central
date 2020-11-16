@@ -1,0 +1,9 @@
+[Unit]
+Description = Central for BME280 BLE Peripherals
+
+[Timer]
+OnCalendar=*-*-* *:00:00
+Unit=ble-bme280-central.service
+
+[Install]
+WantedBy=timers.target
