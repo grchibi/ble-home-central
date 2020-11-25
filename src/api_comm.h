@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 
+#include <curl/curl.h>
 #include <poll.h>
 
 
@@ -18,11 +19,25 @@
  */
 
 class api_comm {
+	std::string PROTOCOL = "http";
+	std::string HOST = "52.198.149.43";
+	std::string PORT = "80";
+	std::string CTYPE = "application/json";
+
+	CURL* _curl_handle;
 	struct pollfd _fds_poll[2];
+
+
+//  RETRY_MAX_COUNT = 3  # TIMES
+//  RETRY_WAIT_TIME = 5  # SECONDS
+//  REQUEST_TIMEOUT = 10 # SECONDS
+//    @uri = "#{PROTOCOL}://#{HOST}:#{PORT}/api/v1/tph_register"
+
+	void send_data(const char* json);
 
 public:
 	api_comm(int fd_sighup, int fd_read);
-	~api_comm() {}
+	~api_comm();
 
 	void start(void);
 

@@ -98,7 +98,7 @@ void scheduler::run() {
 				break;
 			}
 
-			DEBUG_PRINTF("SCHEDULER: timeout => %d sec.", DURATION_SEC_OF_ACT);
+			DEBUG_PRINTF("SCHEDULER: timeout => %d sec.\n", DURATION_SEC_OF_ACT);
 			stop_scanning_peripherals();
 
 #if CONTINUOUS_RUNNING

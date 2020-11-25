@@ -57,7 +57,7 @@ void ble_central::open_device() {
 	_current_hci_state.device_id = hci_get_route(NULL);
 
     if ((_current_hci_state.device_handle = hci_open_dev(_current_hci_state.device_id)) < 0) {
-		char msgbuff[128];
+		char msgbuff[128] = {0};
 		strerror_r(errno, msgbuff, 128);
         throw tt_ble_exception(string("Could not open device: ") + msgbuff);
     }
@@ -65,7 +65,7 @@ void ble_central::open_device() {
     // set fd non-blocking
     /*int on = 1;
     if (ioctl(_current_hci_state.device_handle, FIONBIO, (char*)&on) < 0) {
-		char msgbuff[128];
+		char msgbuff[128] = {0};
 		strerror_r(errno, msgbuff, 128);
 		throw tt_ble_exception(string("Could not set device to non-blocking: ") + msgbuff);
     }*/
@@ -97,7 +97,7 @@ void ble_central::scan_advertising_devices(tph_datastore& datastore, int dev_han
     try {
 		while (1) {
 			if (poll(_fds_poll, 2, -1) < 0 && errno != EINTR) {
-				char msgbuff[128];
+				char msgbuff[128] = {0};
 				strerror_r(errno, msgbuff, 128);
 				cerr << "poll error occurred in scanner worker. " << msgbuff << endl;
 				continue;
@@ -140,9 +140,9 @@ void ble_central::scan_advertising_devices(tph_datastore& datastore, int dev_han
 					if (tphdata.is_valid())	{	// has BME280 data.
 						string jdata = tphdata.create_json_data();
 						if (write(_fd_write, jdata.c_str(), jdata.size()) < 0) {
-							char msgbuff[128];
+							char msgbuff[128] = {0};
 							strerror_r(errno, msgbuff, 128);
-							DEBUG_PRINTF("BLE: WRITE ERROR OCCURRED. %s", msgbuff);
+							DEBUG_PRINTF("BLE: WRITE ERROR OCCURRED. %s\n", msgbuff);
 							throw tt_ble_exception(string("write error. ") + msgbuff);
 						}
 						DEBUG_PUTS("BLE: WROTE DATA TO API COMM");
@@ -206,13 +206,13 @@ void ble_central::start_hci_scan(tph_datastore& datastore) {
     uint8_t filter_type = 0;
 
     if (hci_le_set_scan_parameters(_current_hci_state.device_handle, scan_type, interval, window, own_type, filter_policy, 10000) < 0) {
-		char msgbuff[128];
+		char msgbuff[128] = {0};
 		strerror_r(errno, msgbuff, 128);
         cerr << "BLE[WARN]: Failed to set scan parameters: " << msgbuff << endl;
     }
 
     if (hci_le_set_scan_enable(_current_hci_state.device_handle, 0x01, filter_dup, 10000) < 0) {
-		char msgbuff[128];
+		char msgbuff[128] = {0};
 		strerror_r(errno, msgbuff, 128);
         cerr << "BLE[WARN]: Failed to enable scan: " << msgbuff << endl;;
     }
@@ -228,7 +228,7 @@ void ble_central::start_hci_scan(tph_datastore& datastore) {
     }
 
     if (hci_le_set_scan_enable(_current_hci_state.device_handle, 0x00, filter_dup, 10000) < 0) {
-		char msgbuff[128];
+		char msgbuff[128] = {0};
 		strerror_r(errno, msgbuff, 128);
         throw tt_ble_exception(string("Failed to disable scan: ") + msgbuff);
     }
