@@ -19,6 +19,10 @@
 #include "tph.h"
 
 
+/**
+ * STRUCT
+ */
+
 enum class hci_state {
 	NONE = 0,
 	OPEN,

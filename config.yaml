@@ -1,0 +1,6 @@
+api:
+  protocol: http
+  host: 52.198.149.43
+  port: 80
+  path: /api/v1/tph_register
+  ctype: application/json

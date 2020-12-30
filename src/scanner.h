@@ -10,12 +10,19 @@
 #include <chrono>
 #include <condition_variable>
 #include <exception>
+#include <memory>
 #include <mutex>
 //#include <stdexcept>
 
 #include <poll.h>
 
+#include "api_comm.h"
 #include "tph.h"
+
+
+/**
+ * YAML
+ */
 
 
 /**
@@ -23,12 +30,14 @@
  */
 
 class apicomm_worker {
+	std::unique_ptr<api_comm> _apicomm;
 	int _fd_sig, _fd_r;
 
 public:
-	apicomm_worker(int fd_sighup, int fd_read) : _fd_sig(fd_sighup), _fd_r(fd_read) {}
+	apicomm_worker(int fd_sighup, int fd_read);
 	~apicomm_worker() {}
 
+	void chg_apicomm_settings(api_info_t& info);
 	//void operator()(struct pollfd (&fds)[1], std::exception_ptr& ep);
 	void operator()(std::exception_ptr& ep);
 
@@ -79,6 +88,7 @@ public:
 	scheduler(void);
 	~scheduler();
 
+	void chg_apicomm_settings(api_info_t& info);
 	void run(void);
 	void sigint(void);
 
@@ -86,7 +96,7 @@ public:
 
 
 /**
- * CLASS scanner
+ * CLASS scanner (DEPRECATED)
  */
 
 class scanner {

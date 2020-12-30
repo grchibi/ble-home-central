@@ -12,10 +12,10 @@ SRCS := $(shell find $(SRC_DIR) -name *.cpp)
 OBJS = $(addprefix $(BUILD_DIR)/, $(notdir $(SRCS:.cpp=.o)))
 DEPS := $(OBJS:.o=.d)
 
-INC_DIRS := $(shell find $(SRC_DIR) -type d)
+INC_DIRS := $(shell find $(SRC_DIR) -type d) ../yaml-cpp/include
 INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 
-LIBS = -lbluetooth -pthread -lcurl-gnutls
+LIBS = -lbluetooth -pthread -lcurl-gnutls -lyaml-cpp
 
 -include $(DEPS)
 
@@ -23,7 +23,7 @@ MKDIR_P ?= mkdir -p
 RM ?= rm
 
 CPPFLAGS ?= $(INC_FLAGS) -c -MMD -MP -std=c++2a
-LDFLAGS = -L/usr/lib/arm-linux-gnueabihf
+LDFLAGS = -L/usr/lib/arm-linux-gnueabihf -L../yaml-cpp
 
 OUTPUT_DIR = $(REL_DIR)
 OUTPUT = $(REL_DIR)/$(TARGET_EXEC)

@@ -6,6 +6,7 @@
 
 #include <ctime>
 #include <exception>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <thread>
@@ -14,6 +15,8 @@
 #include <signal.h>
 #include <string.h>
 #include <unistd.h>
+
+#include "yaml-cpp/yaml.h"
 
 #include "scanner.h"
 #include "ble_central.h"
@@ -57,6 +60,10 @@ scheduler::~scheduler() {
 	close(_pipe_data_from_central[1]);
 }
 
+void scheduler::chg_apicomm_settings(api_info_t& info) {
+	_worker_ac->chg_apicomm_settings(info);
+}
+
 int scheduler::get_sec_for_alarm_00() {
 	auto now = chrono::system_clock::to_time_t(chrono::system_clock::now());
 	tm* now_tm = localtime(&now);
@@ -85,7 +92,7 @@ void scheduler::run() {
 
 			DEBUG_PRINTF("SCHEDULER: falling into a sleep...%ds\n", sleep_sec);
 			if (_cond.wait_for(lock, chrono::seconds(sleep_sec), [this]{ return _rcv_sigint; })) {
-				cout << "SCHEDULER: stopped waiting." << endl;
+				tt_logger::instance().puts("SCHEDULER[INFO]: stopped waiting.");
 				break;
 			}
 
@@ -110,12 +117,12 @@ void scheduler::run() {
 
 	} catch (exception& ex) {
 		stop_scanning_peripherals();
-		cerr << "[ERROR] at scheduler::run() => " << ex.what() << endl;
+		tt_logger::instance().printf("SCHEDULER[ERROR]: at scheduler::run() => %s\n", ex.what());
 	}
 
 	curl_global_cleanup();
 
-	cout << "SCHEDULER: normally finished." << endl;
+	tt_logger::instance().puts("SCHEDULER[INFO]: Normally finished.");
 }
 
 void scheduler::start_scanning_peripherals() {
@@ -137,13 +144,13 @@ void scheduler::stop_scanning_peripherals() {
 	try {
 		if (_ep_apicomm != nullptr) rethrow_exception(_ep_apicomm);
 	} catch (exception& ex) {
-		cerr << "SCHEDULER[ERROR]: at api_comm => " << ex.what() << endl;
+		tt_logger::instance().printf("SCHEDULER[ERROR]: from api_comm => %s\n", ex.what());
 	}
 
 	try {
 		if (_ep_central != nullptr) rethrow_exception(_ep_central);
 	} catch (exception& ex) {
-		cerr << "SCHEDULER[ERROR]: at central => " << ex.what() << endl;
+		tt_logger::instance().printf("SCHEDULER[ERROR]: from central => %s\n", ex.what());
 	}
 
 	_ep_apicomm = _ep_central = nullptr;
@@ -151,7 +158,7 @@ void scheduler::stop_scanning_peripherals() {
 
 
 /**
- * scanner
+ * scanner (DEPRECATED)
  */
 
 scanner::scanner() {
@@ -241,13 +248,19 @@ void central_worker::operator()(tph_datastore& datastore, exception_ptr& ep) {
  * apicomm_worker
  */
 
+apicomm_worker::apicomm_worker(int fd_sighup, int fd_read) : _fd_sig(fd_sighup), _fd_r(fd_read) {
+	_apicomm = make_unique<api_comm>(_fd_sig, _fd_r);
+}
+
+void apicomm_worker::chg_apicomm_settings(api_info_t& info) {
+	_apicomm->chg_settings(info);
+}
+
 void apicomm_worker::operator()(exception_ptr& ep) {
 	ep = nullptr;
 
 	try {
-		api_comm communicator(_fd_sig, _fd_r);
-
-		communicator.start();
+		_apicomm->start();
 
 	} catch (...) {
 		ep = current_exception();
@@ -260,6 +273,43 @@ void apicomm_worker::operator()(exception_ptr& ep) {
  */
 
 static scheduler svr_scheduler;
+
+string get_exedirpath() {
+	char tmp[PATH_MAX];
+
+	ssize_t sz = readlink("/proc/self/exe", tmp, PATH_MAX);
+
+	string exepath(tmp, (0 < sz) ? sz : 0);
+	int slashPos = exepath.rfind("/");
+
+	return exepath.substr(0, slashPos);
+}
+
+void initialize(api_info_t& a_info) {
+	// read config file
+	string cfg_path = get_exedirpath();
+	cfg_path += "/config.yaml";
+
+	// parse
+	YAML::Node config = YAML::LoadFile(cfg_path);
+	if (config["api"]) {
+		if (config["api"]["protocol"]) {
+			a_info.protocol = config["api"]["protocol"].as<string>();
+		}
+		if (config["api"]["host"]) {
+			a_info.host = config["api"]["host"].as<string>();
+		}
+		if (config["api"]["port"]) {
+			a_info.port = config["api"]["port"].as<string>();
+		}
+		if (config["api"]["path"]) {
+			a_info.path = config["api"]["path"].as<string>();
+		}
+		if (config["api"]["ctype"]) {
+			a_info.ctype = config["api"]["ctype"].as<string>();
+		}
+	}
+}
 
 void sigint_handler(int sig) {
 	if (sig == SIGINT) {
@@ -276,10 +326,16 @@ int main(int argc, char** argv)
     sigaction(SIGINT, &sa, NULL);
 
 	try {
+		api_info_t a_info;
+
+		initialize(a_info);
+
+		svr_scheduler.chg_apicomm_settings(a_info);
+
 		svr_scheduler.run();
 
 	} catch (exception& ex) {
-		cerr << "Error in main(): " << ex.what() << endl;
+		tt_logger::instance().printf("Error at main(): %s\n", ex.what());
 	}
 
 	return 0;

@@ -15,23 +15,36 @@
 
 
 /**
+ * STRUCT
+ */
+
+typedef struct api_info {
+	api_info(void): protocol("https"), host("127.0.0.1"), port("80"), path("/"), ctype("application/json") {};
+    std::string protocol;
+    std::string host;
+    std::string port;
+	std::string path;
+    std::string ctype;
+} api_info_t;
+
+
+/**
  * CLASS api_comm
  */
 
 class api_comm {
-	std::string PROTOCOL = "http";
-	std::string HOST = "52.198.149.43";
-	std::string PORT = "80";
-	std::string CTYPE = "application/json";
+	std::string _protocol = "https";
+	std::string _host = "127.0.0.1";
+	std::string _port = "443";
+	std::string _path = "/";
+	std::string _ctype = "application/json";
+
+	int RETRY_MAX_COUNT = 5;
+	int RETRY_SLEEP_SECS = 30;
 
 	CURL* _curl_handle;
+	struct curl_slist* _headers = nullptr;
 	struct pollfd _fds_poll[2];
-
-
-//  RETRY_MAX_COUNT = 3  # TIMES
-//  RETRY_WAIT_TIME = 5  # SECONDS
-//  REQUEST_TIMEOUT = 10 # SECONDS
-//    @uri = "#{PROTOCOL}://#{HOST}:#{PORT}/api/v1/tph_register"
 
 	void send_data(const char* json);
 
@@ -39,6 +52,7 @@ public:
 	api_comm(int fd_sighup, int fd_read);
 	~api_comm();
 
+	void chg_settings(api_info_t& info);
 	void start(void);
 
 };

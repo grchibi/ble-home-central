@@ -5,6 +5,7 @@
  */
 
 #include <iostream>
+#include <sstream>
 #include <string>
 
 #include "tph.h"
@@ -33,7 +34,7 @@ void tph_data::_decode_advertisement_data(const char* src)
     // hhmm
     int32_t hm32 = (int32_t)0 + ((int32_t)*(src + 4)) + ((int32_t)*(src + 5) << 8);
     //sprintf(dc_buff, "+%d%04d", ymd32, hm32);
-    _dt = format("+%d%04d", ymd32, hm32);
+    _dt = format("%d%04d", ymd32, hm32);
 
     // temperature
 	int32_t t32 = (int32_t)0 + ((int32_t)*(src + 6)) + ((int32_t)*(src + 7) << 8);
@@ -63,7 +64,10 @@ void tph_data::_initialize(const le_advertising_info& advinfo)
 
 string tph_data::create_json_data()
 {
-	return format("{\"dsrc\":\"%s\", \"dt\": \"%s\", \"t\": %2.2f, \"p\": %4.2f, \"h\": %3.2f}", _name, _dt.c_str(), _t, _p, _h);
+	ostringstream oss;
+	oss << R"({"tph_register":{"dsrc":")" << _name << R"(", "dt":")" << _dt << R"(", "t":)" << _t << R"(, "p":)" << _p << R"(, "h":)" << _h << "}}";
+
+	return oss.str();
 }
 
 void tph_data::update(const le_advertising_info& advinfo)

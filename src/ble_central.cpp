@@ -47,7 +47,7 @@ int ble_central::check_report_filter(uint8_t procedure, le_advertising_info* adv
                 return 1;
             break;
         default:
-            cerr << "unknown discovery procedure." << endl;
+			tt_logger::instance().puts("BLE[ERROR] : unknown discovery procedure.");
     }
 
     return 0;
@@ -99,7 +99,7 @@ void ble_central::scan_advertising_devices(tph_datastore& datastore, int dev_han
 			if (poll(_fds_poll, 2, -1) < 0 && errno != EINTR) {
 				char msgbuff[128] = {0};
 				strerror_r(errno, msgbuff, 128);
-				cerr << "poll error occurred in scanner worker. " << msgbuff << endl;
+				tt_logger::instance().printf("BLE[ERROR]: poll error occurred while scanning. %s\n", msgbuff);
 				continue;
 			}
 
@@ -208,13 +208,13 @@ void ble_central::start_hci_scan(tph_datastore& datastore) {
     if (hci_le_set_scan_parameters(_current_hci_state.device_handle, scan_type, interval, window, own_type, filter_policy, 10000) < 0) {
 		char msgbuff[128] = {0};
 		strerror_r(errno, msgbuff, 128);
-        cerr << "BLE[WARN]: Failed to set scan parameters: " << msgbuff << endl;
+		tt_logger::instance().printf("BLE[WARN]: Failed to set scan parameters, %s\n", msgbuff);
     }
 
     if (hci_le_set_scan_enable(_current_hci_state.device_handle, 0x01, filter_dup, 10000) < 0) {
 		char msgbuff[128] = {0};
 		strerror_r(errno, msgbuff, 128);
-        cerr << "BLE[WARN]: Failed to enable scan: " << msgbuff << endl;;
+		tt_logger::instance().printf("BLE[WARN]: Failed to enable scan, %s\n", msgbuff);
     }
 
     _current_hci_state.state = hci_state::SCANNING;
@@ -224,7 +224,7 @@ void ble_central::start_hci_scan(tph_datastore& datastore) {
 		scan_advertising_devices(datastore, _current_hci_state.device_handle, filter_type);
 
 	} catch(tt_ble_exception& ex) {
-        cerr << "BLE[ERROR]: Could not receive advertising events: " << ex.what() << endl;
+		tt_logger::instance().printf("BLE[ERROR]: Could not receive advertising events, %s\n", ex.what());
     }
 
     if (hci_le_set_scan_enable(_current_hci_state.device_handle, 0x00, filter_dup, 10000) < 0) {
