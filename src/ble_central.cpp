@@ -25,6 +25,18 @@ ble_central::ble_central(int fd_sighup, int fd_write) {
     _fds_poll[0].events = POLLIN;
 
     _fd_write = fd_write;
+
+	open_device();
+    if (_current_hci_state.state == hci_state::OPEN) {
+        DEBUG_PUTS("BLE: OPENED BT DEVICE.");
+    } else {
+        DEBUG_PUTS("BLE: BT DEVICE NOT OPENED.");
+    }
+}
+
+ble_central::~ble_central() {
+    close_device();
+    DEBUG_PUTS("BLE: CLOSED DEVICE.");
 }
 
 int ble_central::check_report_filter(uint8_t procedure, le_advertising_info* adv)
@@ -53,6 +65,11 @@ int ble_central::check_report_filter(uint8_t procedure, le_advertising_info* adv
     return 0;
 }
 
+void ble_central::close_device() {
+    if (0 <= _current_hci_state.device_handle)
+        hci_close_dev(_current_hci_state.device_handle);
+}
+
 void ble_central::open_device() {
 	_current_hci_state.device_id = hci_get_route(NULL);
 
@@ -73,7 +90,7 @@ void ble_central::open_device() {
     _current_hci_state.state = hci_state::OPEN;
 }
 
-void ble_central::scan_advertising_devices(tph_datastore& datastore, int dev_handle, uint8_t f_type)
+void ble_central::scan_advertising_devices(tph_datastore& datastore, std::set<std::string>& wh_list, int dev_handle, uint8_t f_type)
 {
     struct hci_filter of, nf;
 
@@ -128,17 +145,17 @@ void ble_central::scan_advertising_devices(tph_datastore& datastore, int dev_han
             	len -= (1 + HCI_EVENT_HDR_SIZE);
 
             	meta = (evt_le_meta_event*)ptr;
-
 				if (meta->subevent != 0x02)
 					throw tt_ble_exception("evt_le_meta_event.subevent != 0x02");
 
 				// ignoring multiple reports
 				le_advertising_info* adv_info = (le_advertising_info*)(meta->data + 1);
-				if (check_report_filter(f_type, adv_info)) {
-					tph_data tphdata = datastore.store(*adv_info);
 
-					if (tphdata.is_valid())	{	// has BME280 data.
-						string jdata = tphdata.create_json_data();
+				if (check_report_filter(f_type, adv_info)) {
+					unique_ptr<tph_data> tphdata = datastore.store(*adv_info, false);
+
+					if (tphdata->is_valid(wh_list))	{	// has BME280 data.
+						string jdata = tphdata->create_json_data();
 						if (write(_fd_write, jdata.c_str(), jdata.size()) < 0) {
 							char msgbuff[128] = {0};
 							strerror_r(errno, msgbuff, 128);
@@ -196,13 +213,13 @@ int ble_central::read_flags(uint8_t *flags, const uint8_t *data, size_t size)
     return -ENOENT;
 }
 
-void ble_central::start_hci_scan(tph_datastore& datastore) {
+void ble_central::start_hci_scan(tph_datastore& datastore, std::set<std::string>& wh_list) {
 	uint8_t scan_type = 0x01;
-    uint16_t interval = htobs(0x0010);
+    uint16_t interval = htobs(0x4000/*0x0010*/);		// N*0.625ms => 10240ms
     uint16_t window = htobs(0x0010);
     uint8_t own_type = LE_PUBLIC_ADDRESS;
     uint8_t filter_policy = 0x00;
-    uint8_t filter_dup = 0x01;
+    uint8_t filter_dup = 0x00;		// 0x01;
     uint8_t filter_type = 0;
 
     if (hci_le_set_scan_parameters(_current_hci_state.device_handle, scan_type, interval, window, own_type, filter_policy, 10000) < 0) {
@@ -221,7 +238,7 @@ void ble_central::start_hci_scan(tph_datastore& datastore) {
 	DEBUG_PUTS("BLE: Scanning...");
 
 	try {
-		scan_advertising_devices(datastore, _current_hci_state.device_handle, filter_type);
+		scan_advertising_devices(datastore, wh_list, _current_hci_state.device_handle, filter_type);
 
 	} catch(tt_ble_exception& ex) {
 		tt_logger::instance().printf("BLE[ERROR]: Could not receive advertising events, %s\n", ex.what());
@@ -232,8 +249,6 @@ void ble_central::start_hci_scan(tph_datastore& datastore) {
 		strerror_r(errno, msgbuff, 128);
         throw tt_ble_exception(string("Failed to disable scan: ") + msgbuff);
     }
-
-    hci_close_dev(_current_hci_state.device_handle);
 }
 
 

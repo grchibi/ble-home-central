@@ -25,7 +25,7 @@
 #include "tt_lib.h"
 
 
-#define CONTINUOUS_RUNNING 0
+#define CONTINUOUS_RUNNING 1
 
 
 using namespace std;
@@ -60,8 +60,8 @@ scheduler::~scheduler() {
 	close(_pipe_data_from_central[1]);
 }
 
-void scheduler::chg_apicomm_settings(api_info_t& info) {
-	_worker_ac->chg_apicomm_settings(info);
+void scheduler::chg_apicomm_settings(svr_config_t& s_conf, api_info_t& info) {
+	_worker_ac->chg_apicomm_settings(s_conf.features_api, info);
 }
 
 int scheduler::get_sec_for_alarm_00() {
@@ -69,6 +69,37 @@ int scheduler::get_sec_for_alarm_00() {
 	tm* now_tm = localtime(&now);
 	
 	return ((60 - now_tm->tm_min - 1) * 60) + (60 - now_tm->tm_sec);
+}
+
+void scheduler::chg_central_settings(svr_config_t& s_conf) {
+	_worker_cl->chg_central_settings(s_conf.while_list);
+}
+
+void scheduler::reset_pipes() {
+	char tmp_buff[2];
+    if (read(_pipe_notify_to_central[0], tmp_buff, sizeof(tmp_buff) - 1) < 0) {
+        char msgbuff[128];
+        strerror_r(errno, msgbuff, 128);
+        tt_logger::instance().printf("SCHEDULER: Failed to read pipes(central). %s\n", msgbuff);
+    }
+	if (read(_pipe_notify_to_apicomm[0], tmp_buff, sizeof(tmp_buff) - 1) < 0) {
+        char msgbuff[128];
+        strerror_r(errno, msgbuff, 128);
+        tt_logger::instance().printf("SCHEDULER: Failed to read pipes(apicomm). %s\n", msgbuff);
+    }
+
+    /*close(_pipe_notify_to_central[0]);
+    close(_pipe_notify_to_central[1]);
+	close(_pipe_notify_to_apicomm[0]);
+	close(_pipe_notify_to_apicomm[1]);
+
+    if (pipe(_pipe_notify_to_central) == -1 || pipe(_pipe_notify_to_apicomm) == -1) {
+        char msgbuff[128];
+        strerror_r(errno, msgbuff, 128);
+        throw runtime_error(string("SCHEDULER: Failed to re-initialize pipes.") + msgbuff);
+    }*/
+
+    DEBUG_PUTS("SCHEDULER: reset pipes.");
 }
 
 void scheduler::sigint() {
@@ -128,8 +159,14 @@ void scheduler::run() {
 void scheduler::start_scanning_peripherals() {
 	DEBUG_PUTS("SCHEDULER: start scanning.");
 
-	_th_ac = thread(ref(*_worker_ac), ref(_ep_apicomm));
-	_th_cl = thread(ref(*_worker_cl), ref(_ep_central));
+	try {
+		// move constructor
+		_th_ac = thread(ref(*_worker_ac), ref(_ep_apicomm));
+		_th_cl = thread(ref(*_worker_cl), ref(_ep_central));
+
+	} catch (exception& ex) {
+        tt_logger::instance().printf("SCHEDULER[ERROR]: at start_scanning_peripherals(): %s\n", ex.what());
+    }
 }
 
 void scheduler::stop_scanning_peripherals() {
@@ -138,8 +175,12 @@ void scheduler::stop_scanning_peripherals() {
 	write(_pipe_notify_to_central[1], "\x01", 1);
 	write(_pipe_notify_to_apicomm[1], "\x01", 1);
 
-	_th_cl.join();
-	_th_ac.join();
+	// wait for stopping the threads.
+	if (_th_cl.joinable()) _th_cl.join();
+	if (_th_ac.joinable()) _th_ac.join();
+
+	// clear the pipe fd
+    reset_pipes();
 
 	try {
 		if (_ep_apicomm != nullptr) rethrow_exception(_ep_apicomm);
@@ -214,29 +255,29 @@ void scanner::run() {
  * central_worker
  */
 
+void central_worker::chg_central_settings(std::set<std::string>& whitelist) {
+	_wh_list = whitelist;
+}
+
 void central_worker::operator()(exception_ptr& ep) {
 	ep = nullptr;
 	tph_datastore store;
 
 	try {
 		ble_central central(_fd_sig, _fd_w);
-
-		central.open_device();
-		central.start_hci_scan(store);
+		central.start_hci_scan(store, _wh_list);
 
 	} catch (...) {
 		ep = current_exception();
     }
 }
 
-void central_worker::operator()(tph_datastore& datastore, exception_ptr& ep) {
+void central_worker::operator()(tph_datastore& store, exception_ptr& ep) {
 	ep = nullptr;
 
 	try {
 		ble_central central(_fd_sig, _fd_w);
-
-		central.open_device();
-		central.start_hci_scan(datastore);
+		central.start_hci_scan(store, _wh_list);
 
 	} catch (...) {
 		ep = current_exception();
@@ -252,8 +293,8 @@ apicomm_worker::apicomm_worker(int fd_sighup, int fd_read) : _fd_sig(fd_sighup),
 	_apicomm = make_unique<api_comm>(_fd_sig, _fd_r);
 }
 
-void apicomm_worker::chg_apicomm_settings(api_info_t& info) {
-	_apicomm->chg_settings(info);
+void apicomm_worker::chg_apicomm_settings(bool f_call_api, api_info_t& a_info) {
+	_apicomm->chg_settings(f_call_api, a_info);
 }
 
 void apicomm_worker::operator()(exception_ptr& ep) {
@@ -285,13 +326,14 @@ string get_exedirpath() {
 	return exepath.substr(0, slashPos);
 }
 
-void initialize(api_info_t& a_info) {
+void initialize(svr_config_t& s_config, api_info_t& a_info) {
 	// read config file
 	string cfg_path = get_exedirpath();
 	cfg_path += "/config.yaml";
 
-	// parse
 	YAML::Node config = YAML::LoadFile(cfg_path);
+
+	// parse api config
 	if (config["api"]) {
 		if (config["api"]["protocol"]) {
 			a_info.protocol = config["api"]["protocol"].as<string>();
@@ -309,6 +351,22 @@ void initialize(api_info_t& a_info) {
 			a_info.ctype = config["api"]["ctype"].as<string>();
 		}
 	}
+
+	// parse features
+    if (config["features"]) {
+        if (config["features"]["api"]) {
+            if (config["features"]["api"].as<string>() == "no")
+                s_config.features_api = false;
+        }
+    }
+
+    // parse whitelist
+    if (config["whitelist"]) {
+        YAML::Node wl_node =  config["whitelist"];
+        for (auto ite = wl_node.begin(); ite != wl_node.end(); ite++) {
+            s_config.while_list.insert(ite->as<std::string>().c_str());
+        }
+    }
 }
 
 void sigint_handler(int sig) {
@@ -326,11 +384,13 @@ int main(int argc, char** argv)
     sigaction(SIGINT, &sa, NULL);
 
 	try {
+		svr_config_t s_config;
 		api_info_t a_info;
 
-		initialize(a_info);
+		initialize(s_config, a_info);
 
-		svr_scheduler.chg_apicomm_settings(a_info);
+		svr_scheduler.chg_apicomm_settings(s_config, a_info);
+		svr_scheduler.chg_central_settings(s_config);
 
 		svr_scheduler.run();
 

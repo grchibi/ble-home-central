@@ -37,7 +37,9 @@ api_comm::~api_comm() {
 	}
 }
 
-void api_comm::chg_settings(api_info_t& info) {
+void api_comm::chg_settings(bool f_call_api, api_info_t& info) {
+	_features_call_api = f_call_api;	// call api ?
+
 	_protocol = info.protocol;
 	_host = info.host;
 	_port = info.port;
@@ -46,7 +48,13 @@ void api_comm::chg_settings(api_info_t& info) {
 }
 
 void api_comm::send_data(const char* json) {
-	if (!_curl_handle) return;
+	if (!_curl_handle) {
+		tt_logger::instance().puts("API_COMM[WARN] at send_data(): curl handle is null.");
+		return;
+	} else if (!_features_call_api)	{
+		tt_logger::instance().puts("API_COMM[WARN] at send_data(): the feature of calling api is unavailable.");
+		return;
+	}
 
 	string url = _protocol + "://" + _host + ":" + _port + _path;
 

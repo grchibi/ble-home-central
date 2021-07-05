@@ -12,6 +12,7 @@
 #include <exception>
 #include <memory>
 #include <mutex>
+#include <set>
 //#include <stdexcept>
 
 #include <poll.h>
@@ -21,8 +22,14 @@
 
 
 /**
- * YAML
+ * STRUCT
  */
+
+typedef struct svr_config {
+    svr_config(void): features_api(true) {};
+    bool features_api;
+    std::set<std::string> while_list;
+} svr_config_t;
 
 
 /**
@@ -37,7 +44,7 @@ public:
 	apicomm_worker(int fd_sighup, int fd_read);
 	~apicomm_worker() {}
 
-	void chg_apicomm_settings(api_info_t& info);
+	void chg_apicomm_settings(bool f_call_api, api_info_t& a_info);
 	//void operator()(struct pollfd (&fds)[1], std::exception_ptr& ep);
 	void operator()(std::exception_ptr& ep);
 
@@ -50,11 +57,13 @@ public:
 
 class central_worker {
 	int _fd_sig, _fd_w;
+	std::set<std::string> _wh_list;
 
 public:
 	central_worker(int fd_sighup, int fd_write) : _fd_sig(fd_sighup), _fd_w(fd_write) {}
 	~central_worker() {}
 
+	void chg_central_settings(std::set<std::string>& whitelist);
 	//void operator()(struct pollfd (&fds)[2], tph_datastore& datastore, std::exception_ptr& ep);
 	void operator()(tph_datastore& datastore, std::exception_ptr& ep);
 	void operator()(std::exception_ptr& ep);
@@ -81,6 +90,7 @@ class scheduler {
 	central_worker* _worker_cl;
 
 	int get_sec_for_alarm_00(void);
+	void reset_pipes(void);
 	void start_scanning_peripherals(void);
 	void stop_scanning_peripherals(void);
 
@@ -88,7 +98,8 @@ public:
 	scheduler(void);
 	~scheduler();
 
-	void chg_apicomm_settings(api_info_t& info);
+	void chg_apicomm_settings(svr_config_t& s_conf, api_info_t& info);
+	void chg_central_settings(svr_config_t& s_conf);
 	void run(void);
 	void sigint(void);
 

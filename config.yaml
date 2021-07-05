@@ -4,3 +4,10 @@ api:
   port: 80
   path: /api/v1/register
   ctype: application/json
+
+features:
+  api: no
+
+whitelist:
+  - BME280_BEACON_1
+  - BME280_BEACON_2

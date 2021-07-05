@@ -8,6 +8,7 @@
  */
 
 #include <stdexcept>
+#include <set>
 #include <string>
 
 #include <poll.h>
@@ -72,15 +73,16 @@ class ble_central {
 	int _fd_write;
 
 	int check_report_filter(uint8_t procedure, le_advertising_info* adv);
-	void scan_advertising_devices(tph_datastore& datastore, int dev_handle, uint8_t f_type);
+	void close_device(void);
+	void open_device(void);
+	void scan_advertising_devices(tph_datastore& datastore, std::set<std::string>& wh_list, int dev_handle, uint8_t f_type);
 	int read_flags(uint8_t *flags, const uint8_t *data, size_t size);
 
 public:
 	ble_central(int fd_sighup, int fd_write);
-	~ble_central() {}
+	~ble_central();
 
-	void open_device(void);
-	void start_hci_scan(tph_datastore& datastore);
+	void start_hci_scan(tph_datastore& datastore, std::set<std::string>& wh_list);
 
 };
 

@@ -7,6 +7,7 @@
  *    2020/10/19
  */
 
+#include <set>
 #include <stdexcept>
 #include <string>
 
@@ -33,6 +34,8 @@ typedef struct api_info {
  */
 
 class api_comm {
+	bool _features_call_api = true;
+
 	std::string _protocol = "https";
 	std::string _host = "127.0.0.1";
 	std::string _port = "443";
@@ -52,7 +55,7 @@ public:
 	api_comm(int fd_sighup, int fd_read);
 	~api_comm();
 
-	void chg_settings(api_info_t& info);
+	void chg_settings(bool f_call_api, api_info_t& info);
 	void start(void);
 
 };

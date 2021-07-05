@@ -26,6 +26,15 @@ tph_data::tph_data(const le_advertising_info& advinfo) : _t(0), _p(0), _h(0)
 	_initialize(advinfo);
 }
 
+void tph_data::debug_puts() {
+	DEBUG_PRINTF("DEBUG: %s\n", _addr);
+	DEBUG_PRINTF("DEBUG: %s\n", _name);
+	DEBUG_PRINTF("DEBUG: %s\n", _dt.c_str());
+	DEBUG_PRINTF("DEBUG: %3.1f\n", _t);
+	DEBUG_PRINTF("DEBUG: %3.1f\n", _p);
+	DEBUG_PRINTF("DEBUG: %3.1f\n", _h);
+}
+
 void tph_data::_decode_advertisement_data(const char* src)
 {
     // yyyymmdd
@@ -49,6 +58,27 @@ void tph_data::_decode_advertisement_data(const char* src)
 	_h = (float)h32 / 100.00;
 }
 
+tph_data::tph_data(const tph_data& src) {
+	strcpy(_addr, src._addr);
+	strcpy(_name, src._name);
+
+	_dt = src._dt;
+
+	_t = src._t; _p = src._p; _h = src._h;
+}
+
+tph_data::tph_data(tph_data&& src)  : _addr{0}, _name{0}, _t(0), _p(0), _h(0) {
+	strcpy(_addr, src._addr);
+	strcpy(_name, src._name);
+	_dt = src._dt;
+	_t = src._t; _p = src._p; _h = src._h;
+
+	src._addr[0] = '\0';
+	src._name[0] = '\0';
+	src._dt = "";
+	src._t = src._p = src._h = 0;
+}
+
 void tph_data::_initialize(const le_advertising_info& advinfo)
 {
 	// address
@@ -68,6 +98,22 @@ string tph_data::create_json_data()
 	oss << R"({"tph_register":{"dsrc":")" << _name << R"(", "dt":")" << _dt << R"(", "t":)" << _t << R"(, "p":)" << _p << R"(, "h":)" << _h << "}}";
 
 	return oss.str();
+}
+
+bool tph_data::is_valid() {
+	return (strstr(_name, BME280_NAME_PREWORD) != nullptr && _t != 0.0 && _p != 0.0 && _h != 0.0);
+}
+
+bool tph_data::is_valid(std::set<std::string>& wh_list) {
+	bool is_valid_data = (_t != 0.0 && _p != 0.0 && _h != 0.0);
+
+	// in the white list ?
+	if (is_valid_data && wh_list.find(_name) == wh_list.end()) {
+		DEBUG_PRINTF("TPH_DATA[INFO]: %s not found in the white list.\n", _name);
+		return false;
+	}
+
+	return is_valid_data;
 }
 
 void tph_data::update(const le_advertising_info& advinfo)
@@ -105,7 +151,7 @@ void tph_data::update(const le_advertising_info& advinfo)
             eir += field_len + 1;
         }
 
-		if (strstr(_name, "BME280_BEACON") != NULL && 15 <= mdata_len)
+		if (strstr(_name, BME280_NAME_PREWORD) != NULL && 15 <= mdata_len)
 			_decode_advertisement_data(manufacturer_data);
 		
     } catch (tph_initialization_error& exp) {
@@ -113,14 +159,66 @@ void tph_data::update(const le_advertising_info& advinfo)
     }
 }
 
+tph_data& tph_data::operator=(const tph_data& src) {
+	strcpy(_addr, src._addr);
+	strcpy(_name, src._name);
+
+	_dt = src._dt;
+
+	_t = src._t; _p = src._p; _h = src._h;
+
+	return *this;
+}
+
+tph_data& tph_data::operator=(tph_data&& src) {
+	if (this != &src) {
+		strcpy(_addr, src._addr);
+		strcpy(_name, src._name);
+		_dt = src._dt;
+		_t = src._t; _p = src._p; _h = src._h;
+
+		src._addr[0] = '\0';
+		src._name[0] = '\0';
+		src._dt = "";
+		src._t = src._p = src._h = 0;
+	}
+
+	return *this;
+}
+
 
 /**
  * CLASS tph_datastore
  */
 
-const tph_data tph_datastore::store(const le_advertising_info& advinfo)
+void tph_datastore::clear() {
+	lock_guard<mutex> lock(_mtx);
+	_store.clear();
+}
+
+void tph_datastore::processIteratively(const func_type& func) {
+	for (auto ite = _store.begin(); ite != _store.end(); ite++) {
+		if (ite->second.is_valid()) {	// has BME280 data
+			string jdata = ite->second.create_json_data();
+			func((string)ite->first, jdata);
+		}
+	}
+}
+
+void tph_datastore::processIteratively(const func_type& func, std::set<std::string>& wh_list) {
+	for (auto ite = _store.begin(); ite != _store.end(); ite++) {
+		if (ite->second.is_valid(wh_list)) {	// has BME280 data
+			string jdata = ite->second.create_json_data();
+			func((string)ite->first, jdata);
+		}
+	}
+}
+
+unique_ptr<tph_data> tph_datastore::store(const le_advertising_info& advinfo, bool over_write)
 {
 	lock_guard<mutex> lock(_mtx);
+
+	unique_ptr<tph_data> result;
 
 	// address
 	char addr[19] = {0};
@@ -128,14 +226,19 @@ const tph_data tph_datastore::store(const le_advertising_info& advinfo)
     ba2str(&advinfo.bdaddr, addr);
 
 	if (auto ite = _store.find(addr); ite != end(_store)) {	// FOUND
-		ite->second.update(advinfo);
+		if (over_write || !(ite->second.is_valid())) {
+			ite->second.update(advinfo);
+			result = make_unique<tph_data>(_store[addr]);		// updated data
+		} else {
+			result = make_unique<tph_data>();					// temporary data
+		}
 
 	} else {	// NOT FOUND
-		tph_data newData(advinfo);
-		_store[addr] = newData;
+		_store[addr] = tph_data(advinfo);
+		result = make_unique<tph_data>(_store[addr]);		// new data
 	}
 
-	return _store[addr];
+	return result;
 }
 
 
